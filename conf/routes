@@ -1,0 +1,1 @@
+GET        /api/version        com.github.dnvriend.component.health.version.VersionController.version
