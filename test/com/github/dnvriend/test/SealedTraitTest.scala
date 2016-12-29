@@ -63,6 +63,39 @@ object Bmw {
 }
 final case class Bmw(hp: Int) extends Car
 
+
+// Jackson can encode Json using a JsonTypeInfo field eg. 'type' as described in
+// http://www.lagomframework.com/documentation/1.2.x/java/MessageBrokerApi.html
+object BlogPostEvent {
+  val reads: Reads[BlogPostEvent] = ((JsPath \ "type").read[String] and JsPath.read[JsValue])((str, js) => str match {
+    case "created" =>
+      js.as[BlogPostCreated](BlogPostCreated.format)
+    case "published" =>
+      js.as[BlogPostPublished](BlogPostPublished.format)
+  })
+  val writes: Writes[BlogPostEvent] = new Writes[BlogPostEvent] {
+    override def writes(event: BlogPostEvent): JsValue = {
+      val (theType, json): (String, JsValue) = event match {
+        case created: BlogPostCreated =>
+          ("created", Json.toJson[BlogPostCreated](created)(BlogPostCreated.format))
+        case published: BlogPostPublished =>
+          ("published", Json.toJson[BlogPostPublished](published)(BlogPostPublished.format))
+      }
+      JsObject(json.asInstanceOf[JsObject].value + ("type" -> JsString(theType)))
+    }
+  }
+  implicit val format: Format[BlogPostEvent] = Format(reads, writes)
+}
+trait BlogPostEvent
+object BlogPostCreated {
+  implicit val format = Json.format[BlogPostCreated]
+}
+final case class BlogPostCreated(postId: String, title: String) extends BlogPostEvent
+object BlogPostPublished {
+  implicit val format = Json.format[BlogPostPublished]
+}
+final case class BlogPostPublished(postId: String) extends BlogPostEvent
+
 class SealedTraitTest extends TestSpec {
   def serialize(car: Car): String =
     Json.toJson(car)(Car.format).toString()
@@ -77,5 +110,18 @@ class SealedTraitTest extends TestSpec {
     Json.parse("""{"class":"Ford","object":{"hp":100}}""").as[Car] shouldBe Ford(100)
     Json.parse("""{"class":"Vw","object":{"hp":200}}""").as[Car] shouldBe Vw(200)
     Json.parse("""{"class":"Bmw","object":{"hp":300}}""").as[Car] shouldBe Bmw(300)
+  }
+
+  def serializeBlogPost(post: BlogPostEvent): String =
+    Json.toJson(post).toString
+
+  it should "serialize a BlogPostCreated" in {
+    serializeBlogPost(BlogPostCreated("1", "foobar")) shouldBe """{"postId":"1","title":"foobar","type":"created"}"""
+    serializeBlogPost(BlogPostPublished("1")) shouldBe """{"postId":"1","type":"published"}"""
+  }
+
+  it should "deserialize a BlogPostCreated" in {
+    Json.parse("""{"postId":"1","title":"foobar","type":"created"}""").as[BlogPostEvent] shouldBe BlogPostCreated("1", "foobar")
+    Json.parse("""{"postId":"1","type":"published"}""").as[BlogPostEvent] shouldBe BlogPostPublished("1")
   }
 }
